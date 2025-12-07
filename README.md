@@ -1,20 +1,25 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Nutri-Sync
 
-# Run and deploy your AI Studio app
+**Nutri-Sync** is an AI-powered health application designed to interpret medical lab reports in the context of dietary choices. It helps patients understand how specific food items interact with their unique biological markers.
 
-This contains everything you need to run your app locally.
+## Live Demo
+[https://ai.studio/apps/drive/1sl1Lf2U2UIRE1p9nPMjDzUvSqmT6iORt](https://ai.studio/apps/drive/1sl1Lf2U2UIRE1p9nPMjDzUvSqmT6iORt)
 
-View your app in AI Studio: https://ai.studio/apps/drive/1sl1Lf2U2UIRE1p9nPMjDzUvSqmT6iORt
+## Key Features
 
-## Run Locally
+*   **Medical Report Analysis**: Extracts key biomarkers (HbA1c, Cholesterol, etc.) from uploaded PDF or Image reports.
+*   **Dietary Compatibility Check**: Analyzes food photos to identify ingredients and potential risks based on the user's specific medical profile.
+*   **"Bio-Identity" Onboarding**: A simulated secure profile setup flow for personalized analysis.
+*   **Safety Scoring**: Generates a 0-100 compatibility score with detailed biotech reasoning.
+*   **Secure & Private**: All analysis happens within the session; user profiles are stored locally in the browser.
 
-**Prerequisites:**  Node.js
+## Technologies Used
 
+*   **Frontend**: React, TypeScript, Tailwind CSS
+*   **AI Model**: Google Gemini 2.5 Flash (via `@google/genai` SDK)
+*   **Authentication**: Local Storage "Bio-Identity" simulation (Privacy-first design)
+*   **Design**: Modern Dark Mode, Glassmorphism, Inter typography
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Disclaimer
+
+This application is for demonstration purposes only. It is not a medical device and should not be used as a substitute for professional medical advice.

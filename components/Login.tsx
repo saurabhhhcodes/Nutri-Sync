@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../firebase';
 import { ActivityIcon, GoogleIcon } from './Icons';
 
 interface LoginProps {
@@ -18,31 +16,11 @@ export const Login: React.FC<LoginProps> = ({ onGuestLogin }) => {
     setLoading(true);
     setError(null);
     
-    try {
-      await signInWithPopup(auth, googleProvider);
-      // Successful login will trigger onAuthStateChanged in App.tsx
-    } catch (err: any) {
-      console.error("Login failed", err);
-      setLoading(false);
-
-      if (err.code === 'auth/popup-closed-by-user') {
-          setError('Sign-in cancelled');
-          return;
-      } 
-      
-      // SMART FALLBACK: If domain is unauthorized (common in previews) or network fails,
-      // automatically switch to Guest Mode so the demo doesn't break.
-      if (err.code === 'auth/unauthorized-domain' || err.code === 'auth/network-request-failed') {
-          setError('Preview environment detected. Switching to Guest Mode...');
-          setIsRedirecting(true);
-          setTimeout(() => {
-              onGuestLogin();
-          }, 1500);
-          return;
-      }
-
-      setError(err.message || 'Failed to sign in.');
-    }
+    // Simulate login delay
+    setTimeout(() => {
+        setLoading(false);
+        setError("Google Sign-in is currently disabled. Please use Guest Access.");
+    }, 1000);
   };
 
   return (

@@ -4,6 +4,14 @@ export enum FoodStatus {
   AVOID = 'AVOID'
 }
 
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  avatar: string;
+}
+
 export interface Biomarker {
   name: string;
   value: string;

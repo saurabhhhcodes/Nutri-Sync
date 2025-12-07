@@ -1,16 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { auth } from './firebase';
 import { FileUploadCard } from './components/FileUploadCard';
 import { AnalysisResults } from './components/AnalysisResults';
 import { HistorySidebar } from './components/HistorySidebar';
-import { Login } from './components/Login';
-import { FileData, AnalysisResult } from './types';
+import { Onboarding } from './components/Onboarding';
+import { FileData, AnalysisResult, UserProfile } from './types';
 import { analyzeHealthAndFood } from './services/geminiService';
 import { ActivityIcon, RefreshCwIcon, HistoryIcon, LogOutIcon } from './components/Icons';
 
 function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   // App State
@@ -24,24 +22,23 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<AnalysisResult[]>([]);
 
-  // Auth Listener
+  // Check for existing session
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-      } else {
-        // Only set to null if we aren't in guest mode
-        setUser((prev) => (prev?.uid === 'guest-demo-user' ? prev : null));
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
+    const savedProfile = localStorage.getItem('nutriSyncUser');
+    if (savedProfile) {
+        try {
+            setUser(JSON.parse(savedProfile));
+        } catch (e) {
+            console.error("Failed to parse user profile");
+        }
+    }
+    setAuthLoading(false);
   }, []);
 
   // Load history (Scoped to User ID)
   useEffect(() => {
     if (user) {
-        const saved = localStorage.getItem(`nutriSyncHistory_${user.uid}`);
+        const saved = localStorage.getItem(`nutriSyncHistory_${user.id}`);
         if (saved) {
           try {
             setHistory(JSON.parse(saved));
@@ -67,50 +64,24 @@ function App() {
     if (!user) return;
     const updated = [newResult, ...history].slice(0, 10); // Keep last 10
     setHistory(updated);
-    localStorage.setItem(`nutriSyncHistory_${user.uid}`, JSON.stringify(updated));
+    localStorage.setItem(`nutriSyncHistory_${user.id}`, JSON.stringify(updated));
   };
 
   const clearHistory = () => {
     if (!user) return;
     setHistory([]);
-    localStorage.removeItem(`nutriSyncHistory_${user.uid}`);
+    localStorage.removeItem(`nutriSyncHistory_${user.id}`);
   };
 
-  const handleGuestLogin = () => {
-      const guestUser = {
-          uid: 'guest-demo-user',
-          displayName: 'Guest Demo',
-          photoURL: null,
-          email: 'guest@nutrisync.demo',
-          emailVerified: true,
-          isAnonymous: true,
-          metadata: {},
-          providerData: [],
-          refreshToken: '',
-          tenantId: null,
-          delete: async () => {},
-          getIdToken: async () => '',
-          getIdTokenResult: async () => ({} as any),
-          reload: async () => {},
-          toJSON: () => ({}),
-          phoneNumber: null,
-      };
-      // Cast to unknown first to bypass partial implementation warnings in this context
-      setUser(guestUser as unknown as User);
+  const handleLogin = (profile: UserProfile) => {
+      localStorage.setItem('nutriSyncUser', JSON.stringify(profile));
+      setUser(profile);
   };
 
-  const handleSignOut = async () => {
-    if (user?.uid === 'guest-demo-user') {
-        setUser(null);
-        reset();
-        return;
-    }
-    try {
-        await signOut(auth);
-        reset();
-    } catch (e) {
-        console.error("Sign out failed", e);
-    }
+  const handleSignOut = () => {
+    localStorage.removeItem('nutriSyncUser');
+    setUser(null);
+    reset();
   };
 
   const handleAnalyze = async () => {
@@ -183,7 +154,7 @@ function App() {
   }
 
   if (!user) {
-      return <Login onGuestLogin={handleGuestLogin} />;
+      return <Onboarding onLogin={handleLogin} />;
   }
 
   return (
@@ -225,17 +196,13 @@ function App() {
             <div className="h-8 w-px bg-slate-800 mx-1"></div>
 
             <div className="flex items-center gap-3 pl-1">
-                <div className="hidden md:flex flex-col items-end">
-                    <span className="text-sm font-semibold text-slate-200 leading-none">{user.displayName}</span>
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Patient</span>
+                <div className="hidden md:flex flex-col items-end text-right">
+                    <span className="text-sm font-semibold text-slate-200 leading-none">{user.name}</span>
+                    <span className="text-[10px] text-cyan-400 uppercase tracking-wider font-bold bg-cyan-950/30 px-1.5 py-0.5 rounded mt-0.5 border border-cyan-900/50">
+                        {user.role}
+                    </span>
                 </div>
-                {user.photoURL ? (
-                    <img src={user.photoURL} alt="User" className="w-9 h-9 rounded-full border border-slate-700 ring-2 ring-transparent hover:ring-cyan-500/50 transition-all" />
-                ) : (
-                    <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 font-bold">
-                        {user.displayName ? user.displayName[0] : 'U'}
-                    </div>
-                )}
+                <img src={user.avatar} alt="User" className="w-10 h-10 rounded-full border border-slate-700 ring-2 ring-transparent hover:ring-cyan-500/50 transition-all bg-slate-800" />
                 <button 
                     onClick={handleSignOut}
                     className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-slate-800"
@@ -255,7 +222,7 @@ function App() {
         {!result && !loading && (
             <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
                 <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-4 leading-tight">
-                    Synchronize your diet with your <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">physiology</span>.
+                    Synchronize your diet with your <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">unique biology</span>.
                 </h2>
                 <p className="text-lg text-slate-400">
                     Upload your medical report and a picture of your meal. Our AI cross-references your biomarkers to detect hidden dietary risks.
