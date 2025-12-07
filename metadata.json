@@ -1,0 +1,8 @@
+{
+  "name": "Nutri-Sync",
+  "description": "AI-powered medical report analysis intersected with dietary choices.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
