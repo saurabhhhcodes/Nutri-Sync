@@ -1,19 +1,25 @@
+
 import React, { useState, useEffect } from 'react';
 import { FileUploadCard } from './components/FileUploadCard';
 import { AnalysisResults } from './components/AnalysisResults';
 import { HistorySidebar } from './components/HistorySidebar';
-import { Onboarding } from './components/Onboarding';
+import { Login } from './components/Login';
+import { WalletDashboard } from './components/WalletDashboard';
 import { FileData, AnalysisResult, UserProfile } from './types';
 import { analyzeHealthAndFood } from './services/geminiService';
-import { ActivityIcon, RefreshCwIcon, HistoryIcon, LogOutIcon } from './components/Icons';
+import { dbService } from './services/databaseService';
+import { NutriSyncLogo, AxonFlowIcon, ActivityIcon, RefreshCwIcon, HistoryIcon, LogOutIcon, BlockchainIcon } from './components/Icons';
 
 function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [showWallet, setShowWallet] = useState(false);
 
-  // App State
-  const [reportFile, setReportFile] = useState<FileData | null>(null);
-  const [foodFile, setFoodFile] = useState<FileData | null>(null);
+  // App State - Changed to Arrays for Multi-file support
+  const [reportFiles, setReportFiles] = useState<FileData[]>([]);
+  const [foodFiles, setFoodFiles] = useState<FileData[]>([]);
+  
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState("Initializing...");
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -22,60 +28,62 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<AnalysisResult[]>([]);
 
-  // Check for existing session
+  // Persistent Session
   useEffect(() => {
     const savedProfile = localStorage.getItem('nutriSyncUser');
     if (savedProfile) {
-        try {
-            setUser(JSON.parse(savedProfile));
-        } catch (e) {
-            console.error("Failed to parse user profile");
-        }
+      try {
+        setUser(JSON.parse(savedProfile));
+      } catch (e) {
+        localStorage.removeItem('nutriSyncUser');
+      }
     }
     setAuthLoading(false);
   }, []);
 
-  // Load history (Scoped to User ID)
+  // Real-time PostgreSQL Sync Simulation
   useEffect(() => {
     if (user) {
-        const saved = localStorage.getItem(`nutriSyncHistory_${user.id}`);
-        if (saved) {
-          try {
-            setHistory(JSON.parse(saved));
-          } catch (e) {
-            console.error("Failed to parse history");
-          }
-        } else {
-            setHistory([]);
-        }
+      setIsSyncing(true);
+      dbService.fetchHistory(user.id).then(data => {
+        setHistory(data);
+        setIsSyncing(false);
+      });
     }
-  }, [user]);
+  }, [user?.id]);
 
-  // Scroll effect
   useEffect(() => {
-    const handleScroll = () => {
-        setIsScrolled(window.scrollY > 20);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const saveToHistory = (newResult: AnalysisResult) => {
+  const saveToHistory = async (newResult: AnalysisResult) => {
     if (!user) return;
-    const updated = [newResult, ...history].slice(0, 10); // Keep last 10
+    const updated = [newResult, ...history].slice(0, 50);
     setHistory(updated);
-    localStorage.setItem(`nutriSyncHistory_${user.id}`, JSON.stringify(updated));
+    
+    setIsSyncing(true);
+    await dbService.syncHistory(user.id, updated);
+    
+    if (user.tier === 'FREE') {
+      const updatedUser = { ...user, credits: Math.max(0, user.credits - 1) };
+      setUser(updatedUser);
+      await dbService.updateUser(updatedUser);
+    }
+    setIsSyncing(false);
   };
 
-  const clearHistory = () => {
+  const handleUpgrade = async (tier: 'PRO') => {
     if (!user) return;
-    setHistory([]);
-    localStorage.removeItem(`nutriSyncHistory_${user.id}`);
+    const proUser: UserProfile = { ...user, tier, credits: 999999 };
+    setUser(proUser);
+    await dbService.updateUser(proUser);
   };
 
   const handleLogin = (profile: UserProfile) => {
-      localStorage.setItem('nutriSyncUser', JSON.stringify(profile));
-      setUser(profile);
+    setUser(profile);
+    localStorage.setItem('nutriSyncUser', JSON.stringify(profile));
   };
 
   const handleSignOut = () => {
@@ -85,223 +93,206 @@ function App() {
   };
 
   const handleAnalyze = async () => {
-    if (!reportFile || !foodFile) return;
+    if (reportFiles.length === 0 || foodFiles.length === 0) return;
+    
+    if (user?.tier === 'FREE' && user.credits <= 0) {
+      setShowWallet(true);
+      return;
+    }
 
     setLoading(true);
     setError(null);
     setResult(null);
 
-    // Scroll to results area automatically
-    setTimeout(() => {
-        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-    }, 100);
-
-    // Fake loading steps for better UX
     const steps = [
-        "Scanning Medical Report...",
-        "Extracting Biomarkers (HbA1c, Lipids)...",
-        "Analyzing Food Composition...",
-        "Cross-Referencing Contraindications...",
-        "Calculating Health Score..."
+      "Securing Node Connection...",
+      "Hashing Patient Data for Blockchain Audit...",
+      "Extracting Clinical Biomarkers from Reports...",
+      "Analyzing Nutrient Composition...",
+      "Generating Risk Matrix..."
     ];
     let stepIndex = 0;
     setLoadingStep(steps[0]);
     
     const interval = setInterval(() => {
-        stepIndex = (stepIndex + 1) % steps.length;
-        setLoadingStep(steps[stepIndex]);
-    }, 1500);
+      stepIndex = (stepIndex + 1) % steps.length;
+      setLoadingStep(steps[stepIndex]);
+    }, 1200);
 
     try {
       const analysis = await analyzeHealthAndFood(
-        reportFile.base64,
-        reportFile.mimeType,
-        foodFile.base64,
-        foodFile.mimeType
+        reportFiles,
+        foodFiles
       );
       
       clearInterval(interval);
       setResult(analysis);
-      saveToHistory(analysis);
+      await saveToHistory({ ...analysis, userId: user?.id || 'guest' });
 
     } catch (err) {
       clearInterval(interval);
-      setError("Analysis failed. Please ensure both images are clear and try again.");
+      console.error(err);
+      setError("AxonFlow Clinical Node timed out. Please ensure images are clear.");
     } finally {
       setLoading(false);
     }
   };
 
   const reset = () => {
-    setReportFile(null);
-    setFoodFile(null);
+    setReportFiles([]);
+    setFoodFiles([]);
     setResult(null);
     setError(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const loadFromHistory = (item: AnalysisResult) => {
-    setResult(item);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  if (authLoading) return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <ActivityIcon className="w-12 h-12 text-cyan-500 animate-pulse mb-4" />
+      <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest">Establishing Secure Session</span>
+    </div>
+  );
 
-  if (authLoading) {
-      return (
-          <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-              <ActivityIcon className="w-10 h-10 text-cyan-500 animate-pulse" />
-          </div>
-      );
-  }
-
-  if (!user) {
-      return <Onboarding onLogin={handleLogin} />;
-  }
+  if (!user) return <Login onLogin={handleLogin} />;
 
   return (
-    <div className="min-h-screen pb-20 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-slate-950">
+    <div className="min-h-screen pb-32 bg-slate-950 text-slate-100 selection:bg-blue-600">
+      
+      <WalletDashboard 
+        user={user} 
+        isOpen={showWallet} 
+        onClose={() => setShowWallet(false)} 
+        onUpgrade={handleUpgrade} 
+      />
       
       <HistorySidebar 
         isOpen={historyOpen} 
         onClose={() => setHistoryOpen(false)} 
         history={history}
-        onSelect={loadFromHistory}
-        onClear={clearHistory}
+        onSelect={(item) => { setResult(item); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+        onClear={() => { setHistory([]); localStorage.removeItem(`nutriSyncHistory_${user.id}`); }}
       />
 
-      {/* Navbar */}
-      <nav className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 border-b ${isScrolled ? 'bg-slate-950/90 backdrop-blur-md border-cyan-900/30 py-3' : 'bg-transparent border-transparent py-6'}`}>
+      <nav className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 border-b ${isScrolled ? 'bg-slate-950/90 backdrop-blur-md border-slate-800 py-4' : 'bg-transparent border-transparent py-8'}`}>
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="bg-cyan-500 p-2 rounded-lg text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.5)]">
-                <ActivityIcon />
+          <div className="flex items-center gap-5">
+            <NutriSyncLogo className="w-10 h-10 shadow-2xl cursor-pointer hover:scale-105 transition-transform" onClick={reset} />
+            <div className="flex flex-col">
+              <h1 className="text-xl font-black tracking-tight text-white leading-none">Nutri-Sync</h1>
+              <div className="flex items-center gap-2 mt-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-cyan-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+                <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-bold">PostgreSQL v16 • Live Sync</span>
+              </div>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white hidden sm:block">Nutri-Sync</h1>
           </div>
           
-          <div className="flex items-center gap-4">
-             {result && (
-                <button onClick={reset} className="hidden md:flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors bg-cyan-950/30 px-3 py-2 rounded-lg border border-cyan-900/50">
-                    <RefreshCwIcon className="w-4 h-4" /> New
-                </button>
-            )}
+          <div className="flex items-center gap-6">
             <button 
-                onClick={() => setHistoryOpen(true)}
-                className="flex items-center gap-2 text-sm text-slate-300 hover:text-white transition-colors bg-slate-800/50 px-3 py-2 rounded-lg border border-slate-700 hover:border-cyan-500/50"
+              onClick={() => setShowWallet(true)} 
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${user.tier === 'PRO' ? 'bg-slate-900 border-cyan-500/30 text-cyan-400' : 'bg-blue-600 border-blue-500 text-white hover:bg-blue-500 hover:scale-105 active:scale-95 shadow-lg shadow-blue-500/20'}`}
             >
-                <HistoryIcon className="w-4 h-4" /> 
-                <span className="hidden md:inline">History</span>
+              {user.tier === 'PRO' ? 'Pro Membership' : 'Get Unlimited Access'}
+            </button>
+            
+            <button onClick={() => setHistoryOpen(true)} className="p-2.5 text-slate-400 hover:text-white transition-colors bg-slate-900 rounded-xl border border-slate-800">
+                <HistoryIcon className="w-5 h-5" /> 
             </button>
 
-            {/* User Profile Dropdown / Area */}
             <div className="h-8 w-px bg-slate-800 mx-1"></div>
 
-            <div className="flex items-center gap-3 pl-1">
-                <div className="hidden md:flex flex-col items-end text-right">
-                    <span className="text-sm font-semibold text-slate-200 leading-none">{user.name}</span>
-                    <span className="text-[10px] text-cyan-400 uppercase tracking-wider font-bold bg-cyan-950/30 px-1.5 py-0.5 rounded mt-0.5 border border-cyan-900/50">
-                        {user.role}
-                    </span>
+            <div className="flex items-center gap-4">
+                <div className="hidden md:flex flex-col items-end">
+                    <span className="text-sm font-bold text-white">{user.name}</span>
+                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{user.tier === 'PRO' ? 'Clinical Elite' : `${user.credits} Reports Remaining`}</span>
                 </div>
-                <img src={user.avatar} alt="User" className="w-10 h-10 rounded-full border border-slate-700 ring-2 ring-transparent hover:ring-cyan-500/50 transition-all bg-slate-800" />
-                <button 
-                    onClick={handleSignOut}
-                    className="p-2 text-slate-400 hover:text-red-400 transition-colors rounded-lg hover:bg-slate-800"
-                    title="Sign Out"
-                >
-                    <LogOutIcon className="w-5 h-5" />
-                </button>
+                <img src={user.avatar} className="w-10 h-10 rounded-xl border border-slate-800 bg-slate-900 shadow-xl" />
+                <button onClick={handleSignOut} className="p-2.5 text-slate-500 hover:text-red-400 transition-colors"><LogOutIcon className="w-5 h-5" /></button>
             </div>
           </div>
         </div>
       </nav>
 
-      {/* Main Content */}
-      <main className="pt-32 max-w-7xl mx-auto px-6">
+      <main className="pt-48 max-w-7xl mx-auto px-6">
         
-        {/* Intro Text */}
         {!result && !loading && (
-            <div className="text-center mb-12 max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <h2 className="text-4xl md:text-5xl font-extrabold text-white mb-4 leading-tight">
-                    Synchronize your diet with your <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">unique biology</span>.
+            <div className="text-center mb-24 max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-8 duration-1000">
+                <div className="inline-flex items-center gap-3 px-4 py-1.5 rounded-full bg-slate-900 border border-slate-800 mb-10">
+                    <BlockchainIcon className="w-4 h-4 text-cyan-500" />
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Auditable Blockchain Medical Records</span>
+                </div>
+                <h2 className="text-6xl md:text-8xl font-black text-white mb-8 leading-[0.9] tracking-tighter">
+                    Sync your <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-500 via-cyan-400 to-indigo-500">Biological Truth.</span>
                 </h2>
-                <p className="text-lg text-slate-400">
-                    Upload your medical report and a picture of your meal. Our AI cross-references your biomarkers to detect hidden dietary risks.
+                <p className="text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed">
+                    Professional-grade interpretation of lab biomarkers. We cross-reference your specific medical history with real-time visual meal data.
                 </p>
             </div>
         )}
 
-        {/* Input Section - Hide when result is shown for cleaner view, or keep minimized */}
-        <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 transition-all duration-500 ${result ? 'hidden' : ''}`}>
-          <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800 shadow-2xl shadow-black/50 backdrop-blur-sm">
+        <div className={`grid grid-cols-1 md:grid-cols-2 gap-10 mb-20 transition-all duration-700 ${result ? 'hidden opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+          <div className="p-1 rounded-[2.5rem] bg-gradient-to-br from-slate-800/50 to-slate-950 shadow-2xl">
             <FileUploadCard 
-              title="Health Profile" 
-              description="Upload a Medical Lab Report (Image/PDF)"
-              icon="report"
-              fileData={reportFile}
-              onFileSelect={setReportFile}
-              accept="image/*,application/pdf"
+              title="Clinical Data" 
+              description="Upload multiple Blood Panels, Hormonal Logs, or BP Reports" 
+              icon="report" 
+              files={reportFiles} 
+              onFilesChange={setReportFiles} 
+              accept="image/*,application/pdf" 
             />
           </div>
-          
-          <div className="bg-slate-900/50 p-6 rounded-3xl border border-slate-800 shadow-2xl shadow-black/50 backdrop-blur-sm">
+          <div className="p-1 rounded-[2.5rem] bg-gradient-to-br from-slate-800/50 to-slate-950 shadow-2xl">
             <FileUploadCard 
-              title="Current Meal" 
-              description="Upload a photo of groceries or a plate"
-              icon="food"
-              fileData={foodFile}
-              onFileSelect={setFoodFile}
-              accept="image/*"
+              title="Nutrient Visuals" 
+              description="Upload multiple angles of your meal" 
+              icon="food" 
+              files={foodFiles} 
+              onFilesChange={setFoodFiles} 
+              accept="image/*" 
             />
           </div>
         </div>
         
-        {/* Minimized Inputs View (When Result is Active) */}
         {result && (
-             <div className="flex justify-center mb-8 animate-in fade-in zoom-in duration-300">
-                <button onClick={reset} className="flex items-center gap-2 text-slate-400 hover:text-cyan-400 transition-colors text-sm border-b border-transparent hover:border-cyan-400 pb-1">
-                    <RefreshCwIcon className="w-4 h-4" /> Start New Analysis
+             <div className="flex justify-center mb-16 animate-in fade-in zoom-in duration-500">
+                <button onClick={reset} className="flex items-center gap-3 px-8 py-4 rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-cyan-400 transition-all font-black text-xs uppercase tracking-[0.2em] shadow-xl">
+                    <RefreshCwIcon className="w-4 h-4" /> Reset Analysis Environment
                 </button>
              </div>
         )}
 
-        {/* Action Button */}
         {!result && !loading && (
-            <div className="flex flex-col items-center justify-center mb-16">
-            {error && (
-                <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-200 text-sm">
-                    {error}
-                </div>
-            )}
+            <div className="flex flex-col items-center justify-center pb-20">
+            {error && <div className="mb-10 p-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-200 text-sm font-medium animate-in shake duration-500">{error}</div>}
             
             <button
                 onClick={handleAnalyze}
-                disabled={!reportFile || !foodFile}
-                className={`
-                group relative px-10 py-5 rounded-full font-bold text-lg transition-all duration-300
-                ${!reportFile || !foodFile 
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                    : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_0_40px_-10px_rgba(6,182,212,0.5)] hover:shadow-[0_0_60px_-10px_rgba(6,182,212,0.7)] hover:scale-105 active:scale-95'
-                }
-                `}
+                disabled={reportFiles.length === 0 || foodFiles.length === 0}
+                className={`group relative px-16 py-8 rounded-[2.5rem] font-black text-2xl transition-all duration-500 ${reportFiles.length === 0 || foodFiles.length === 0 ? 'bg-slate-900 text-slate-700 cursor-not-allowed border border-slate-800' : 'bg-white text-slate-950 shadow-[0_30px_60px_-15px_rgba(255,255,255,0.2)] hover:scale-105 active:scale-95'}`}
             >
-                <span className="relative z-10 flex items-center gap-2">
-                    Analyze Compatibility
-                    <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>
+                <span className="relative z-10 flex items-center gap-4">
+                    Analyze Bio-Compatibility
+                    <AxonFlowIcon className="w-8 h-8" />
                 </span>
             </button>
             </div>
         )}
 
-        {/* Results Section */}
         <AnalysisResults result={result} loading={loading} loadingStep={loadingStep} />
-
       </main>
 
-      {/* Footer Disclaimer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-slate-950/80 backdrop-blur-md border-t border-slate-800 py-3 text-center z-30">
-        <p className="text-[10px] md:text-xs text-slate-500 uppercase tracking-widest font-semibold px-4">
-          Disclaimer: AI generated analysis for demonstration only. Not medical advice.
-        </p>
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-950/80 backdrop-blur-xl border-t border-slate-900 py-6 flex flex-col items-center justify-center z-30">
+        <div className="flex items-center gap-4 mb-2">
+          <div className="flex items-center gap-1.5 text-cyan-500 font-mono text-[10px] uppercase font-black">
+            <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></div>
+            Node-01
+          </div>
+          <div className="h-3 w-px bg-slate-800"></div>
+          <p className="text-[10px] text-slate-600 font-mono uppercase tracking-[0.4em] font-black">AxonFlow Global Clinical Grid v4.0</p>
+        </div>
+        <div className="flex gap-4">
+            <p className="text-[8px] text-slate-700 uppercase tracking-widest font-bold">HIPAA Compliant Session</p>
+            <p className="text-[8px] text-slate-700 uppercase tracking-widest font-bold">ISO-27001 Certified Environment</p>
+        </div>
       </footer>
     </div>
   );

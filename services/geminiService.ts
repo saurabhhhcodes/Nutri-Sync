@@ -1,10 +1,12 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { AnalysisResult, FoodStatus } from "../types";
+
+import { GoogleGenAI, Type } from "@google/genai";
+import { AnalysisResult, FoodStatus, FileData } from "../types";
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-const analysisSchema: Schema = {
+// Using object literal for schema as Schema type is not explicitly needed from the SDK
+const analysisSchema: any = {
   type: Type.OBJECT,
   properties: {
     compatibilityScore: {
@@ -54,63 +56,78 @@ const analysisSchema: Schema = {
 };
 
 export const analyzeHealthAndFood = async (
-  reportBase64: string, 
-  reportMimeType: string,
-  foodBase64: string,
-  foodMimeType: string
+  reportFiles: FileData[], 
+  foodFiles: FileData[]
 ): Promise<AnalysisResult> => {
   
   try {
+    // Construct the parts array dynamically based on uploaded files
+    const parts: any[] = [
+      {
+        text: `You are Nutri-Sync, an expert Clinical Nutritionist and Medical Analyst AI.
+        
+        GOAL: Cross-reference medical lab report(s) with food photo(s) to identify personalized dietary risks and generate a compatibility score.
+
+        INPUT DATA:
+        - The first set of images provided are the MEDICAL LAB REPORTS.
+        - The second set of images provided are the NUTRIENT VISUALS (Food).
+
+        STEP 1: ANALYZE REPORTS (Medical Data)
+        - Extract critical biomarkers from ALL report images provided: HbA1c, Glucose, Cholesterol (LDL, HDL, Triglycerides), Blood Pressure, Iron, etc.
+        - Identify numeric values that are High, Low, or Critical.
+        - If multiple pages are provided, consolidate the findings.
+
+        STEP 2: ANALYZE FOOD (Dietary Data)
+        - Identify all distinct food items across ALL food images provided.
+        - DETECTION NUANCE: Be skeptical of "healthy-looking" foods if they contradict the user's pathology. 
+        - Example: A fruit salad looks healthy, but if the patient has High HbA1c/Diabetes, high-glycemic fruits (Mangoes, Grapes, Bananas) are RISKY.
+
+        STEP 3: COMPATIBILITY CHECK & SCORING (The Logic Core)
+        - For each food item, classify as: SAFE (Green), MODERATE (Yellow), or AVOID (Red).
+        - STRICT RULE: You MUST explicitly quote the user's specific biomarker value in the 'biotechReason'.
+        - Calculate a 'compatibilityScore' (0-100). 
+          - 90-100: Everything is safe.
+          - 70-89: Minor issues or moderation needed.
+          - 50-69: Some items should be avoided.
+          - <50: Dangerous combination (e.g. Sugar + Diabetes, Salt + Hypertension).
+
+        EXAMPLES OF DESIRED OUTPUT:
+        - BAD: "Avoid mango because it is high in sugar."
+        - GOOD: "Avoid: High glycemic index risks spiking your Glucose (currently 200 mg/dL) and exacerbating your HbA1c (8.5%)."
+        - BAD: "Steak is bad for your heart."
+        - GOOD: "Avoid: High Saturated Fat content is dangerous for your elevated LDL Cholesterol of 160 mg/dL."
+
+        STEP 4: SUGGEST SWAPS
+        - For every AVOID or MODERATE item, provide a realistic, healthier alternative (e.g., "Berries" instead of "Mango", "Grilled Chicken" instead of "Steak").
+        `
+      }
+    ];
+
+    // Append Report Images
+    reportFiles.forEach(file => {
+      parts.push({
+        inlineData: {
+          data: file.base64,
+          mimeType: file.mimeType
+        }
+      });
+    });
+
+    // Append Food Images
+    foodFiles.forEach(file => {
+      parts.push({
+        inlineData: {
+          data: file.base64,
+          mimeType: file.mimeType
+        }
+      });
+    });
+
+    // Corrected model to 'gemini-3-flash-preview' for general text/multimodal reasoning tasks
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: {
-        parts: [
-          {
-            text: `You are Nutri-Sync, an expert Clinical Nutritionist and Medical Analyst AI.
-            
-            GOAL: Cross-reference a medical lab report with a food photo to identify personalized dietary risks and generate a compatibility score.
-
-            STEP 1: ANALYZE REPORT (First Image)
-            - Extract critical biomarkers: HbA1c, Glucose, Cholesterol (LDL, HDL, Triglycerides), Blood Pressure, Iron, etc.
-            - Identify numeric values that are High, Low, or Critical.
-
-            STEP 2: ANALYZE FOOD (Second Image)
-            - Identify all distinct food items.
-            - DETECTION NUANCE: Be skeptical of "healthy-looking" foods if they contradict the user's pathology. 
-            - Example: A fruit salad looks healthy, but if the patient has High HbA1c/Diabetes, high-glycemic fruits (Mangoes, Grapes, Bananas) are RISKY.
-
-            STEP 3: COMPATIBILITY CHECK & SCORING (The Logic Core)
-            - For each food item, classify as: SAFE (Green), MODERATE (Yellow), or AVOID (Red).
-            - STRICT RULE: You MUST explicitly quote the user's specific biomarker value in the 'biotechReason'.
-            - Calculate a 'compatibilityScore' (0-100). 
-              - 90-100: Everything is safe.
-              - 70-89: Minor issues or moderation needed.
-              - 50-69: Some items should be avoided.
-              - <50: Dangerous combination (e.g. Sugar + Diabetes, Salt + Hypertension).
-
-            EXAMPLES OF DESIRED OUTPUT:
-            - BAD: "Avoid mango because it is high in sugar."
-            - GOOD: "Avoid: High glycemic index risks spiking your Glucose (currently 200 mg/dL) and exacerbating your HbA1c (8.5%)."
-            - BAD: "Steak is bad for your heart."
-            - GOOD: "Avoid: High Saturated Fat content is dangerous for your elevated LDL Cholesterol of 160 mg/dL."
-
-            STEP 4: SUGGEST SWAPS
-            - For every AVOID or MODERATE item, provide a realistic, healthier alternative (e.g., "Berries" instead of "Mango", "Grilled Chicken" instead of "Steak").
-            `
-          },
-          {
-            inlineData: {
-              data: reportBase64,
-              mimeType: reportMimeType
-            }
-          },
-          {
-            inlineData: {
-              data: foodBase64,
-              mimeType: foodMimeType
-            }
-          }
-        ]
+        parts: parts
       },
       config: {
         responseMimeType: "application/json",
@@ -119,6 +136,7 @@ export const analyzeHealthAndFood = async (
       }
     });
 
+    // response.text is a property, correct usage
     const text = response.text;
     if (!text) throw new Error("No response from AI");
     

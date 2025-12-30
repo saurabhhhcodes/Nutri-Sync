@@ -1,13 +1,14 @@
+
 import React, { useRef, useState } from 'react';
 import { FileData } from '../types';
-import { UploadIcon, FileTextIcon, CameraIcon } from './Icons';
+import { UploadIcon, FileTextIcon, CameraIcon, XIcon } from './Icons';
 
 interface FileUploadCardProps {
   title: string;
   description: string;
   icon: 'report' | 'food';
-  fileData: FileData | null;
-  onFileSelect: (data: FileData) => void;
+  files: FileData[];
+  onFilesChange: (files: FileData[]) => void;
   accept: string;
 }
 
@@ -15,42 +16,59 @@ export const FileUploadCard: React.FC<FileUploadCardProps> = ({
   title, 
   description, 
   icon, 
-  fileData, 
-  onFileSelect,
+  files, 
+  onFilesChange,
   accept
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  const processFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        const base64String = (e.target?.result as string).split(',')[1];
-        onFileSelect({
-            file,
-            previewUrl: URL.createObjectURL(file),
-            base64: base64String,
-            mimeType: file.type
-        });
-    };
-    reader.readAsDataURL(file);
+  const processFiles = (fileList: FileList | File[]) => {
+    const newFiles: FileData[] = [];
+    const filesArray = Array.from(fileList);
+    let processedCount = 0;
+
+    filesArray.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+          const base64String = (e.target?.result as string).split(',')[1];
+          newFiles.push({
+              file,
+              previewUrl: URL.createObjectURL(file),
+              base64: base64String,
+              mimeType: file.type
+          });
+          processedCount++;
+          
+          if (processedCount === filesArray.length) {
+            onFilesChange([...files, ...newFiles]);
+          }
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      processFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files);
     }
+    // Reset value to allow selecting the same file again if needed
+    if (inputRef.current) inputRef.current.value = '';
   };
 
-  const isPdf = fileData?.mimeType === 'application/pdf';
+  const removeFile = (indexToRemove: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updatedFiles = files.filter((_, index) => index !== indexToRemove);
+    onFilesChange(updatedFiles);
+  };
 
   return (
     <div className={`flex flex-col h-full ${isDragging ? 'ring-2 ring-cyan-400 rounded-3xl' : ''}`}>
@@ -63,11 +81,10 @@ export const FileUploadCard: React.FC<FileUploadCardProps> = ({
       </div>
 
       <div 
-        className="flex-grow relative group cursor-pointer"
+        className="flex-grow relative group"
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
       >
         <input 
           type="file" 
@@ -75,61 +92,68 @@ export const FileUploadCard: React.FC<FileUploadCardProps> = ({
           className="hidden" 
           accept={accept}
           onChange={handleChange}
+          multiple
         />
         
-        <div className={`h-64 md:h-80 w-full rounded-2xl border-2 border-dashed transition-all duration-300 flex items-center justify-center overflow-hidden relative
-          ${fileData 
-            ? 'border-cyan-500/50 bg-slate-900 shadow-inner' 
-            : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-cyan-500/30'
-          }`}
-        >
-          {fileData ? (
-            <div className="relative w-full h-full flex items-center justify-center bg-slate-950">
-                {isPdf ? (
-                    <div className="flex flex-col items-center text-cyan-100 p-6 animate-in zoom-in duration-300">
-                        <div className="w-20 h-20 mb-4 text-cyan-500 bg-cyan-950/30 rounded-2xl flex items-center justify-center border border-cyan-500/20">
-                            <FileTextIcon className="w-10 h-10" />
-                        </div>
-                        <span className="font-semibold text-sm truncate max-w-[200px]">{fileData.file.name}</span>
-                        <span className="text-xs text-slate-400 mt-1 uppercase tracking-wider">PDF Document</span>
-                    </div>
-                ) : (
-                    <>
-                        <img 
-                          src={fileData.previewUrl} 
-                          alt="Preview" 
-                          className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" 
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
-                    </>
-                )}
-                
-                {!isPdf && (
-                    <div className="absolute bottom-4 left-4 right-4">
-                        <span className="inline-flex items-center text-xs bg-slate-900/90 text-cyan-200 px-3 py-1.5 rounded-full border border-cyan-500/30 backdrop-blur-md shadow-lg">
-                            {fileData.file.name}
-                        </span>
-                    </div>
-                )}
-                
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <div className="bg-slate-900/80 p-2 rounded-full text-white border border-slate-700">
-                        <UploadIcon className="w-4 h-4" />
-                    </div>
-                </div>
-            </div>
-          ) : (
+        {files.length === 0 ? (
+          // Empty State
+          <div 
+            onClick={() => inputRef.current?.click()}
+            className={`h-64 md:h-80 w-full rounded-2xl border-2 border-dashed transition-all duration-300 flex items-center justify-center cursor-pointer
+              ${isDragging 
+                ? 'border-cyan-500 bg-slate-900/80' 
+                : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-cyan-500/30'
+              }`}
+          >
             <div className="text-center p-6 transition-transform duration-300 group-hover:-translate-y-1">
               <div className="bg-slate-800 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:bg-slate-700 group-hover:scale-110 transition-all border border-slate-700 group-hover:border-cyan-500/30">
                 <UploadIcon className="text-slate-400 w-8 h-8" />
               </div>
               <p className="text-slate-200 font-semibold text-lg">Click or Drag & Drop</p>
               <p className="text-sm text-slate-500 mt-2">
-                 {icon === 'report' ? 'PDF or Image Reports' : 'JPG, PNG Photos'}
+                 {icon === 'report' ? 'Upload multiple pages/PDFs' : 'Upload multiple food angles'}
               </p>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          // Grid State with files
+          <div className="h-64 md:h-80 w-full rounded-2xl bg-slate-900 border border-slate-700 p-4 overflow-y-auto custom-scrollbar">
+             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {files.map((fileData, index) => {
+                   const isPdf = fileData.mimeType === 'application/pdf';
+                   return (
+                     <div key={index} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700 bg-slate-800 group/item">
+                        {isPdf ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center p-2 text-cyan-100">
+                                <FileTextIcon className="w-8 h-8 text-cyan-500 mb-2" />
+                                <span className="text-[10px] text-center w-full truncate px-1">{fileData.file.name}</span>
+                            </div>
+                        ) : (
+                            <img src={fileData.previewUrl} className="w-full h-full object-cover" alt="preview" />
+                        )}
+                        
+                        {/* Remove Button */}
+                        <button 
+                            onClick={(e) => removeFile(index, e)}
+                            className="absolute top-1 right-1 bg-slate-950/80 hover:bg-red-500 text-white rounded-full p-1 opacity-0 group-hover/item:opacity-100 transition-all"
+                        >
+                            <XIcon className="w-3 h-3" />
+                        </button>
+                     </div>
+                   );
+                })}
+
+                {/* Add More Button */}
+                <div 
+                    onClick={() => inputRef.current?.click()}
+                    className="aspect-square rounded-xl border-2 border-dashed border-slate-700 hover:border-cyan-500/50 hover:bg-slate-800 transition-colors flex flex-col items-center justify-center cursor-pointer text-slate-500 hover:text-cyan-400"
+                >
+                    <UploadIcon className="w-6 h-6 mb-1" />
+                    <span className="text-[10px] font-bold uppercase">Add More</span>
+                </div>
+             </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { UserProfile } from '../types';
-import { ActivityIcon } from './Icons';
+import { NutriSyncLogo, AxonFlowIcon, ActivityIcon } from './Icons';
 
 interface OnboardingProps {
   onLogin: (profile: UserProfile) => void;
@@ -39,12 +40,15 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onLogin }) => {
         }
         
         // Finalize
+        // Fix: Added missing properties 'tier' and 'credits' to comply with UserProfile interface
         const profile: UserProfile = {
             id: crypto.randomUUID(),
             name,
             email,
             role,
-            avatar: avatarUrl
+            avatar: avatarUrl,
+            tier: 'FREE',
+            credits: 3
         };
         onLogin(profile);
     };
@@ -72,7 +76,20 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onLogin }) => {
 
             {/* Header */}
             <div className="flex flex-col items-center mb-8 text-center">
-                <div className="relative mb-4 group">
+                <div className="relative mb-6">
+                    <div className="absolute -inset-4 bg-cyan-500/20 blur-xl rounded-full"></div>
+                    <NutriSyncLogo className="w-20 h-20 relative z-10 drop-shadow-2xl" />
+                </div>
+                
+                <div className="mb-6">
+                  <h1 className="text-3xl font-bold text-white mb-1">Nutri-Sync</h1>
+                  <div className="flex items-center justify-center gap-1 opacity-60">
+                    <AxonFlowIcon className="w-3 h-3 text-cyan-400" />
+                    <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Powered by AxonFlow AI</span>
+                  </div>
+                </div>
+
+                <div className="relative mb-6 group">
                     <div className="w-24 h-24 rounded-full border-2 border-slate-700 overflow-hidden bg-slate-800 shadow-lg group-hover:border-cyan-500/50 transition-colors">
                         <img src={avatarUrl} alt="Avatar Preview" className="w-full h-full object-cover" />
                     </div>
@@ -80,7 +97,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onLogin }) => {
                         <ActivityIcon className="w-4 h-4" />
                     </div>
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-1">Initialize Health Profile</h1>
+                <h2 className="text-xl font-bold text-white mb-1">Initialize Health Profile</h2>
                 <p className="text-slate-400 text-sm">Create your secure bio-identity</p>
             </div>
 
@@ -151,4 +168,3 @@ export const Onboarding: React.FC<OnboardingProps> = ({ onLogin }) => {
       </div>
     </div>
   );
-};
